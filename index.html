@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Scrap Price Board – Live</title>
+<style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { color: #2a7d55; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    .up { background-color: #d6f5d6; }   /* light green */
+    .down { background-color: #f5d6d6; } /* light red */
+    .neutral { background-color: #f9f9f9; }
+    .price { font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Live Scrap Price Board</h1>
+<p>This board fetches the latest available scrap price indices from the Federal Reserve (FRED) and scales them to local prices.  Materials are sorted by current price per pound, with green rows indicating a price increase and red rows indicating a decrease compared to the previous observation.  Supply your own FRED API key for automatic updates; without a key the board falls back to static data.</p>
+
+<table id="priceTable">
+    <thead>
+        <tr>
+            <th>Material</th>
+            <th>Current Price<br>(USD/lb)</th>
+            <th>Change</th>
+            <th>Historical Change</th>
+        </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+
+<script>
+// Anchor prices expressed in USD per pound.  For #1 Prepared Steel and Cars
+// we convert the local yard quotes from price per hundredweight (CWT) to per pound.
+// Update these values whenever you receive new quotes.
+// Base price anchors for each material in USD per pound.  These
+// values reflect local yard quotes as of May 12 2026 from CMC
+// Recycling in Jacksonville【681183302969302†L173-L207】.  Cast iron and
+// steel prices are converted from price per hundredweight (CWT) to
+// price per pound.  Update these numbers when you get new local
+// quotes.
+const anchorPrices = {
+    '#1 Copper': 5.00,
+    '#2 Copper': 4.80,
+    'Yellow Brass': 2.85,
+    'Red Brass': 2.95,
+    'Aluminum Cans': 0.85,
+    '6063 Aluminum': 1.35,
+    '#1 Prepared Steel': 10.20 / 100,   // 10.20 CWT → $0.102/lb【681183302969302†L203-L207】
+    '#1 Unprepared Steel': 8.95 / 100,  // 8.95 CWT → $0.0895/lb【681183302969302†L203-L207】
+    '#2 Prepared Steel': 9.70 / 100,    // 9.70 CWT → $0.097/lb【681183302969302†L203-L207】
+    '#2 Unprepared Steel': 8.85 / 100,  // 8.85 CWT → $0.0885/lb【681183302969302†L203-L207】
+    'Mixed Steel Scrap': 0.07,          // average price for mixed steel scrap【732990517068643†L193-L200】
+    'Cast Iron': 9.70 / 100,            // 9.70 CWT → $0.097/lb【681183302969302†L203-L207】
+    'Shred/Tin': 5.25 / 100,            // 5.25 CWT → $0.0525/lb【732990517068643†L204-L269】
+    'Stainless Steel Scrap': 0.35,      // 304 stainless steel price【681183302969302†L197-L200】
+    'Lead Scrap': 0.36                  // clean lead price【681183302969302†L197-L200】
+};
+
+// Map each material to its FRED series ID.  Steel and cars share the iron & steel scrap index.
+// Map each material to the appropriate FRED series ID.  When a
+// dedicated series doesn’t exist we map similar grades to the
+// iron and steel scrap index (WPU1012), the aluminum scrap index
+// (WPU102302) or the yellow brass scrap index (WPU10230103).
+const seriesMap = {
+    '#1 Copper': 'WPU10230101',
+    '#2 Copper': 'WPU10230102',
+    'Yellow Brass': 'WPU10230103',
+    'Red Brass': 'WPU10230103',
+    'Aluminum Cans': 'WPU102302',
+    '6063 Aluminum': 'WPU102302',
+    '#1 Prepared Steel': 'WPU1012',
+    '#1 Unprepared Steel': 'WPU1012',
+    '#2 Prepared Steel': 'WPU1012',
+    '#2 Unprepared Steel': 'WPU1012',
+    'Mixed Steel Scrap': 'WPU1012',
+    'Cast Iron': 'WPU1012',
+    'Shred/Tin': 'WPU1012',
+    'Stainless Steel Scrap': 'WPU101212',
+    'Lead Scrap': 'WPU102303'
+};
+
+// Fallback static data: arrays of {date, price} objects with at least two entries per material.
+// Prices are in USD per pound.
+const staticData = {
+    '#1 Copper': [ { date: '2025-10-01', price: anchorPrices['#1 Copper'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#1 Copper'] } ],
+    '#2 Copper': [ { date: '2025-10-01', price: anchorPrices['#2 Copper'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#2 Copper'] } ],
+    'Yellow Brass': [ { date: '2025-10-01', price: anchorPrices['Yellow Brass'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Yellow Brass'] } ],
+    'Red Brass': [ { date: '2025-10-01', price: anchorPrices['Red Brass'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Red Brass'] } ],
+    'Aluminum Cans': [ { date: '2025-10-01', price: anchorPrices['Aluminum Cans'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Aluminum Cans'] } ],
+    '6063 Aluminum': [ { date: '2025-10-01', price: anchorPrices['6063 Aluminum'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['6063 Aluminum'] } ],
+    '#1 Prepared Steel': [ { date: '2025-10-01', price: anchorPrices['#1 Prepared Steel'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#1 Prepared Steel'] } ],
+    '#1 Unprepared Steel': [ { date: '2025-10-01', price: anchorPrices['#1 Unprepared Steel'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#1 Unprepared Steel'] } ],
+    '#2 Prepared Steel': [ { date: '2025-10-01', price: anchorPrices['#2 Prepared Steel'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#2 Prepared Steel'] } ],
+    '#2 Unprepared Steel': [ { date: '2025-10-01', price: anchorPrices['#2 Unprepared Steel'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#2 Unprepared Steel'] } ],
+    'Mixed Steel Scrap': [ { date: '2025-10-01', price: anchorPrices['Mixed Steel Scrap'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Mixed Steel Scrap'] } ],
+    'Cast Iron': [ { date: '2025-10-01', price: anchorPrices['Cast Iron'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Cast Iron'] } ],
+    'Shred/Tin': [ { date: '2025-10-01', price: anchorPrices['Shred/Tin'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Shred/Tin'] } ],
+    'Stainless Steel Scrap': [ { date: '2025-10-01', price: anchorPrices['Stainless Steel Scrap'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Stainless Steel Scrap'] } ],
+    'Lead Scrap': [ { date: '2025-10-01', price: anchorPrices['Lead Scrap'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Lead Scrap'] } ]
+};
+
+// Holds the computed board data once loaded
+let boardData = [];
+
+// Build the table rows based on current boardData
+function renderTable() {
+    const tbody = document.querySelector('#priceTable tbody');
+    // Clear existing rows
+    tbody.innerHTML = '';
+    // Sort by current price descending
+    boardData.sort((a, b) => b.currentPrice - a.currentPrice);
+    // Create rows
+    boardData.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.className = item.trendClass;
+        // Material cell
+        const tdName = document.createElement('td');
+        tdName.textContent = item.material;
+        tr.appendChild(tdName);
+        // Current price cell
+        const tdPrice = document.createElement('td');
+        tdPrice.className = 'price';
+        tdPrice.textContent = item.currentPrice.toFixed(2);
+        tr.appendChild(tdPrice);
+        // Change cell (difference between current and previous price)
+        const tdChange = document.createElement('td');
+        // Show positive or negative difference with +/- sign and arrows
+        const diff = item.currentPrice - item.previousPrice;
+        let changeStr = diff === 0 ? '0.00' : (diff > 0 ? '+' + diff.toFixed(2) : diff.toFixed(2));
+        tdChange.textContent = changeStr;
+        tr.appendChild(tdChange);
+        // Historical change cell (difference between current price and earliest observed price)
+        const tdHist = document.createElement('td');
+        const histDiff = item.currentPrice - item.earliestPrice;
+        let histStr = histDiff === 0 ? '0.00' : (histDiff > 0 ? '+' + histDiff.toFixed(2) : histDiff.toFixed(2));
+        tdHist.textContent = histStr;
+        tr.appendChild(tdHist);
+        tbody.appendChild(tr);
+    });
+}
+
+// Fetch FRED data and update boardData
+async function updateBoardFromFred() {
+    const apiKey = window.FRED_API_KEY || '';
+    // Start with empty board data array
+    boardData = [];
+    // Iterate over each material
+    for (const material in seriesMap) {
+        const seriesId = seriesMap[material];
+        const anchor = anchorPrices[material];
+        // Fallback using static data if no API key or fetch fails
+        let entries = staticData[material];
+        if (apiKey) {
+            try {
+                const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${apiKey}&observation_start=2025-10-01&file_type=json`;
+                const res = await fetch(url);
+                const json = await res.json();
+                if (json && json.observations) {
+                    // Filter out missing values
+                    const obs = json.observations.filter(o => o.value !== '.');
+                    if (obs.length >= 2) {
+                        // Determine scale constant using the latest value
+                        const lastVal = parseFloat(obs[obs.length - 1].value);
+                        const constant = anchor / lastVal;
+                        // Build entries array with converted prices (per lb)
+                        entries = obs.map(o => ({ date: o.date, price: parseFloat(o.value) * constant }));
+                        // Keep the entire array for historical change (we'll use earliest and latest values)
+                    }
+                }
+            } catch (e) {
+                console.error('Error fetching FRED data for', material, e);
+                // Use static fallback
+            }
+        }
+        // Compute current, previous and earliest prices
+        const current = entries[entries.length - 1].price;
+        const prev = entries.length >= 2 ? entries[entries.length - 2].price : current;
+        const earliest = entries[0].price;
+        // Determine trend class based on short-term change
+        let trendClass;
+        if (current > prev) trendClass = 'up';
+        else if (current < prev) trendClass = 'down';
+        else trendClass = 'neutral';
+        // Push data to board with earliest price for historical change
+        boardData.push({ material: material, currentPrice: current, previousPrice: prev, earliestPrice: earliest, trendClass: trendClass });
+    }
+    // Render table
+    renderTable();
+}
+
+// Initialize board: update from FRED and render
+updateBoardFromFred();
+</script>
+</body>
+</html>
