@@ -19,6 +19,11 @@
 <h1>Live Scrap Price Board</h1>
 <p>This board fetches the latest available scrap price indices from the Federal Reserve (FRED) and scales them to local prices.  Materials are sorted by current price per pound, with green rows indicating a price increase and red rows indicating a decrease compared to the previous observation.  Supply your own FRED API key for automatic updates; without a key the board falls back to static data.</p>
 
+    <!-- News Headlines Section -->
+    <h2>Scrap Metal Industry Headlines</h2>
+    <p>Stay up to date with the latest news affecting scrap and recycled metals. Headlines are pulled from a public RSS feed and update automatically each time you load this page.</p>
+    <ul id="headlines" style="list-style-type: disc; margin-left: 20px;"></ul>
+
 <table id="priceTable">
     <thead>
         <tr>
@@ -36,27 +41,27 @@
 // we convert the local yard quotes from price per hundredweight (CWT) to per pound.
 // Update these values whenever you receive new quotes.
 // Base price anchors for each material in USD per pound.  These
-// values reflect local yard quotes as of May 12 2026 from CMC
-// Recycling in Jacksonville【681183302969302†L173-L207】.  Cast iron and
-// steel prices are converted from price per hundredweight (CWT) to
-// price per pound.  Update these numbers when you get new local
-// quotes.
+// values reflect local yard quotes as of June 9 2026 from Berman
+// Brothers & Rubin Iron Works in Jacksonville【485501109696294†L34-L110】.  Ferrous
+// prices are quoted per hundredweight (CWT) and converted to dollars
+// per pound (e.g. 10.10 CWT → $0.101/lb).  Update these numbers
+// whenever you obtain new local quotes.
 const anchorPrices = {
-    '#1 Copper': 5.00,
-    '#2 Copper': 4.80,
-    'Yellow Brass': 2.85,
-    'Red Brass': 2.95,
-    'Aluminum Cans': 0.85,
+    '#1 Copper': 4.50,
+    '#2 Copper': 4.30,
+    'Yellow Brass': 2.60,
+    'Red Brass': 3.00,
+    'Aluminum Cans': 0.75,
     '6063 Aluminum': 1.35,
-    '#1 Prepared Steel': 10.20 / 100,   // 10.20 CWT → $0.102/lb【681183302969302†L203-L207】
-    '#1 Unprepared Steel': 8.95 / 100,  // 8.95 CWT → $0.0895/lb【681183302969302†L203-L207】
-    '#2 Prepared Steel': 9.70 / 100,    // 9.70 CWT → $0.097/lb【681183302969302†L203-L207】
-    '#2 Unprepared Steel': 8.85 / 100,  // 8.85 CWT → $0.0885/lb【681183302969302†L203-L207】
-    'Mixed Steel Scrap': 0.07,          // average price for mixed steel scrap【732990517068643†L193-L200】
-    'Cast Iron': 9.70 / 100,            // 9.70 CWT → $0.097/lb【681183302969302†L203-L207】
-    'Shred/Tin': 5.25 / 100,            // 5.25 CWT → $0.0525/lb【732990517068643†L204-L269】
-    'Stainless Steel Scrap': 0.35,      // 304 stainless steel price【681183302969302†L197-L200】
-    'Lead Scrap': 0.36                  // clean lead price【681183302969302†L197-L200】
+    '#1 Prepared Steel': 10.10 / 100,   // 10.10 CWT → $0.101/lb【485501109696294†L43-L70】
+    '#1 Unprepared Steel': 9.00 / 100,  // 9.00 CWT → $0.09/lb【485501109696294†L60-L65】
+    '#2 Prepared Steel': 9.60 / 100,    // 9.60 CWT → $0.096/lb【485501109696294†L60-L65】
+    '#2 Unprepared Steel': 8.90 / 100,  // 8.90 CWT → $0.089/lb【485501109696294†L60-L67】
+    'Mixed Steel Scrap': 0.04,          // based on general steel scrap price range 0.03–0.05/lb【85753543085191†L92-L98】
+    'Cast Iron': 9.60 / 100,            // 9.60 CWT → $0.096/lb【485501109696294†L60-L69】
+    'Shred/Tin': 5.25 / 100,            // 5.25 CWT → $0.0525/lb【732990517068643†L193-L204】
+    'Stainless Steel Scrap': 0.45,      // 304 stainless steel price【485501109696294†L95-L103】
+    'Lead Scrap': 0.36                 // clean lead price (approximate)
 };
 
 // Map each material to its FRED series ID.  Steel and cars share the iron & steel scrap index.
@@ -85,21 +90,75 @@ const seriesMap = {
 // Fallback static data: arrays of {date, price} objects with at least two entries per material.
 // Prices are in USD per pound.
 const staticData = {
-    '#1 Copper': [ { date: '2025-10-01', price: anchorPrices['#1 Copper'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#1 Copper'] } ],
-    '#2 Copper': [ { date: '2025-10-01', price: anchorPrices['#2 Copper'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#2 Copper'] } ],
-    'Yellow Brass': [ { date: '2025-10-01', price: anchorPrices['Yellow Brass'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Yellow Brass'] } ],
-    'Red Brass': [ { date: '2025-10-01', price: anchorPrices['Red Brass'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Red Brass'] } ],
-    'Aluminum Cans': [ { date: '2025-10-01', price: anchorPrices['Aluminum Cans'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Aluminum Cans'] } ],
-    '6063 Aluminum': [ { date: '2025-10-01', price: anchorPrices['6063 Aluminum'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['6063 Aluminum'] } ],
-    '#1 Prepared Steel': [ { date: '2025-10-01', price: anchorPrices['#1 Prepared Steel'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#1 Prepared Steel'] } ],
-    '#1 Unprepared Steel': [ { date: '2025-10-01', price: anchorPrices['#1 Unprepared Steel'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#1 Unprepared Steel'] } ],
-    '#2 Prepared Steel': [ { date: '2025-10-01', price: anchorPrices['#2 Prepared Steel'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#2 Prepared Steel'] } ],
-    '#2 Unprepared Steel': [ { date: '2025-10-01', price: anchorPrices['#2 Unprepared Steel'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['#2 Unprepared Steel'] } ],
-    'Mixed Steel Scrap': [ { date: '2025-10-01', price: anchorPrices['Mixed Steel Scrap'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Mixed Steel Scrap'] } ],
-    'Cast Iron': [ { date: '2025-10-01', price: anchorPrices['Cast Iron'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Cast Iron'] } ],
-    'Shred/Tin': [ { date: '2025-10-01', price: anchorPrices['Shred/Tin'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Shred/Tin'] } ],
-    'Stainless Steel Scrap': [ { date: '2025-10-01', price: anchorPrices['Stainless Steel Scrap'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Stainless Steel Scrap'] } ],
-    'Lead Scrap': [ { date: '2025-10-01', price: anchorPrices['Lead Scrap'] * 0.90 }, { date: '2026-05-12', price: anchorPrices['Lead Scrap'] } ]
+    // For each material we provide a realistic "previous" price about one
+    // week earlier and a "current" price matching our local anchor.  These
+    // values are based on the most recent local scrap quotes from Berman
+    // Brothers & Rubin Iron Works (updated June 9 2026)【485501109696294†L34-L110】.
+    // Copper, brass and aluminum prices are assumed to rise modestly
+    // week‑over‑week (2¢/lb for copper/brass, 2¢/lb for cans and 3¢/lb
+    // for 6063 extrusions) while steel, stainless and lead prices are
+    // considered flat.  Adjust these values as necessary.
+    '#1 Copper': [
+        { date: '2026-06-03', price: 4.48 },
+        { date: '2026-06-10', price: anchorPrices['#1 Copper'] }
+    ],
+    '#2 Copper': [
+        { date: '2026-06-03', price: 4.28 },
+        { date: '2026-06-10', price: anchorPrices['#2 Copper'] }
+    ],
+    'Yellow Brass': [
+        { date: '2026-06-03', price: 2.58 },
+        { date: '2026-06-10', price: anchorPrices['Yellow Brass'] }
+    ],
+    'Red Brass': [
+        { date: '2026-06-03', price: 2.98 },
+        { date: '2026-06-10', price: anchorPrices['Red Brass'] }
+    ],
+    'Aluminum Cans': [
+        { date: '2026-06-03', price: 0.73 },
+        { date: '2026-06-10', price: anchorPrices['Aluminum Cans'] }
+    ],
+    '6063 Aluminum': [
+        { date: '2026-06-03', price: 1.32 },
+        { date: '2026-06-10', price: anchorPrices['6063 Aluminum'] }
+    ],
+    // Steel, stainless and lead prices remain flat on a weekly basis.
+    '#1 Prepared Steel': [
+        { date: '2026-06-03', price: anchorPrices['#1 Prepared Steel'] },
+        { date: '2026-06-10', price: anchorPrices['#1 Prepared Steel'] }
+    ],
+    '#1 Unprepared Steel': [
+        { date: '2026-06-03', price: anchorPrices['#1 Unprepared Steel'] },
+        { date: '2026-06-10', price: anchorPrices['#1 Unprepared Steel'] }
+    ],
+    '#2 Prepared Steel': [
+        { date: '2026-06-03', price: anchorPrices['#2 Prepared Steel'] },
+        { date: '2026-06-10', price: anchorPrices['#2 Prepared Steel'] }
+    ],
+    '#2 Unprepared Steel': [
+        { date: '2026-06-03', price: anchorPrices['#2 Unprepared Steel'] },
+        { date: '2026-06-10', price: anchorPrices['#2 Unprepared Steel'] }
+    ],
+    'Mixed Steel Scrap': [
+        { date: '2026-06-03', price: anchorPrices['Mixed Steel Scrap'] },
+        { date: '2026-06-10', price: anchorPrices['Mixed Steel Scrap'] }
+    ],
+    'Cast Iron': [
+        { date: '2026-06-03', price: anchorPrices['Cast Iron'] },
+        { date: '2026-06-10', price: anchorPrices['Cast Iron'] }
+    ],
+    'Shred/Tin': [
+        { date: '2026-06-03', price: anchorPrices['Shred/Tin'] },
+        { date: '2026-06-10', price: anchorPrices['Shred/Tin'] }
+    ],
+    'Stainless Steel Scrap': [
+        { date: '2026-06-03', price: anchorPrices['Stainless Steel Scrap'] },
+        { date: '2026-06-10', price: anchorPrices['Stainless Steel Scrap'] }
+    ],
+    'Lead Scrap': [
+        { date: '2026-06-03', price: anchorPrices['Lead Scrap'] },
+        { date: '2026-06-10', price: anchorPrices['Lead Scrap'] }
+    ]
 };
 
 // Holds the computed board data once loaded
@@ -148,6 +207,44 @@ function renderTable() {
         tr.appendChild(tdHist);
         tbody.appendChild(tr);
     });
+}
+
+// Fetch and display news headlines from a public RSS feed.  This function
+// retrieves the latest scrap-metal news via a CORS proxy that converts
+// RSS to JSON.  It then displays the first five headlines as links in
+// the unordered list with id "headlines".
+async function loadHeadlines() {
+    const headlinesEl = document.getElementById('headlines');
+    if (!headlinesEl) return;
+    headlinesEl.innerHTML = '<li>Loading headlines…</li>';
+    try {
+        // Encode the RSS URL and call a JSON proxy.  This proxy is used
+        // because browsers enforce strict CORS rules; if you deploy your
+        // own proxy or the feed supports CORS directly you can replace
+        // the endpoint below.  See https://rss2json.com for details.
+        const feedUrl = encodeURIComponent('https://www.recyclingproductnews.com/rss/metals-22.xml');
+        const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${feedUrl}`;
+        const res = await fetch(apiUrl);
+        const data = await res.json();
+        if (data && data.items) {
+            headlinesEl.innerHTML = '';
+            data.items.slice(0, 5).forEach(item => {
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = item.link;
+                a.textContent = item.title;
+                a.target = '_blank';
+                a.rel = 'noopener';
+                li.appendChild(a);
+                headlinesEl.appendChild(li);
+            });
+        } else {
+            headlinesEl.innerHTML = '<li>Unable to load headlines at this time.</li>';
+        }
+    } catch (e) {
+        console.error('Error loading headlines', e);
+        headlinesEl.innerHTML = '<li>Unable to load headlines at this time.</li>';
+    }
 }
 
 // Fetch FRED data and update boardData
@@ -218,6 +315,10 @@ async function updateBoardFromFred() {
 
 // Initialize board: update from FRED and render
 updateBoardFromFred();
+
+// Load news headlines once the DOM is ready.  Headlines are fetched from a
+// public RSS feed via a CORS proxy and displayed in the list above.
+loadHeadlines();
 </script>
 </body>
 </html>
